@@ -1,0 +1,538 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>malware_sim</title>
+<style>
+:root{
+  --bg:#04060a;
+  --ink:#35f5a4;
+  --dim:#1f8a5f;
+  --warn:#ffc94d;
+  --bad:#ff3b4e;
+  --cyan:#63e2ff;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;overflow:hidden}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 ui-monospace,"Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+
+#stage{
+  position:fixed;inset:0;overflow:hidden;will-change:transform,filter;
+  background:radial-gradient(125% 100% at 50% 0%,#09192a 0%,#04060a 58%,#020305 100%);
+}
+#stage::after{
+  content:"";position:absolute;inset:0;z-index:60;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.34) 0 1px,transparent 1px 3px);
+}
+#stage::before{
+  content:"";position:absolute;inset:0;z-index:59;pointer-events:none;
+  background:radial-gradient(120% 90% at 50% 50%,transparent 55%,rgba(0,0,0,.75) 100%);
+}
+
+#rain{position:absolute;inset:0;z-index:0;opacity:0;transition:opacity 1.2s linear}
+#glitch{
+  position:absolute;inset:0;z-index:55;pointer-events:none;opacity:0;mix-blend-mode:screen;
+  background:repeating-linear-gradient(0deg,rgba(255,59,78,.16) 0 2px,transparent 2px 7px),
+             repeating-linear-gradient(90deg,rgba(99,226,255,.10) 0 1px,transparent 1px 9px);
+}
+
+#term{position:absolute;inset:0;z-index:10;padding:24px 30px 40px;display:flex;flex-direction:column;justify-content:flex-end}
+.row{white-space:pre-wrap;word-break:break-word;text-shadow:0 0 10px rgba(53,245,164,.25)}
+.dim{color:var(--dim);text-shadow:none}
+.warn{color:var(--warn)}
+.bad{color:var(--bad);text-shadow:0 0 12px rgba(255,59,78,.4)}
+.cy{color:var(--cyan)}
+.head{color:#eafbf3;font-weight:600}
+.caret::after{content:"\258A";margin-left:1px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+.barrow{display:flex;align-items:center;gap:10px;margin:3px 0}
+.barrow > .bl{color:var(--dim);font-size:12px;min-width:74px}
+.barrow > .pct{color:var(--dim);font-size:12px;min-width:150px;text-align:right}
+.bar{position:relative;flex:1 1 auto;height:12px;border:1px solid var(--dim);background:rgba(53,245,164,.05)}
+.bar > i{position:absolute;top:1px;bottom:1px;left:1px;width:0;background:linear-gradient(90deg,#136a48,var(--ink));box-shadow:0 0 12px rgba(53,245,164,.5)}
+.bar.hot{border-color:#8c2334}
+.bar.hot > i{background:linear-gradient(90deg,#7a2030,var(--bad));box-shadow:0 0 12px rgba(255,59,78,.55)}
+
+#bsod{
+  position:absolute;inset:0;z-index:70;display:none;padding:8vh 8vw;color:#fff;
+  background:#0b3fd8;font-size:15px;line-height:1.7;letter-spacing:.02em;
+}
+
+#ransom{position:absolute;inset:0;z-index:80;display:none;background:#0a0206;overflow:auto}
+#ransom.on{display:block;animation:rise .5s ease-out}
+@keyframes rise{from{opacity:0;transform:scale(.985)}to{opacity:1;transform:none}}
+.rbox{min-height:100%;max-width:880px;margin:0 auto;padding:7vh 6vw}
+.rhead{color:var(--bad);font-size:clamp(22px,4.4vw,40px);font-weight:700;letter-spacing:.06em;text-shadow:0 0 26px rgba(255,59,78,.55)}
+.rsub{color:#ff8f9b;font-size:13px;letter-spacing:.22em;margin:6px 0 26px;text-transform:uppercase}
+.rbody{color:#f2c9cf;font-size:14px}
+.rbody p{margin:0 0 14px;max-width:62ch}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:26px 0 20px}
+.rgrid div{border:1px solid #5d1220;background:rgba(255,59,78,.05);padding:12px 14px}
+.rgrid span{display:block;color:#c26473;font-size:11px;letter-spacing:.16em;text-transform:uppercase}
+.rgrid b{display:block;margin-top:6px;font-size:17px;color:#fff;word-break:break-all}
+.rlabel{color:#c26473;font-size:11px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:6px}
+.raddr{
+  border:1px dashed #5d1220;padding:12px 14px;font-size:13px;color:#fff;word-break:break-all;
+  background:rgba(255,255,255,.03);user-select:all;
+}
+.rrow{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
+.rrow input{
+  flex:1 1 300px;min-width:200px;background:#150409;border:1px solid #5d1220;color:#fff;
+  padding:11px 12px;font:inherit;outline:none;
+}
+.rrow input:focus{border-color:var(--bad)}
+button{font:inherit;letter-spacing:.1em;cursor:pointer;border:1px solid;padding:11px 20px}
+#kbtn{background:var(--bad);border-color:var(--bad);color:#120003;font-weight:700}
+#kbtn:hover{background:#ff6274}
+#kmsg{margin-top:14px;min-height:20px;color:var(--bad);font-size:13px}
+.rfoot{margin-top:34px;color:#7d3040;font-size:11px;letter-spacing:.14em}
+
+#gate,#ended{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);text-align:center;padding:8vw}
+#gate h1{margin:0 0 10px;font-size:clamp(28px,6vw,54px);letter-spacing:.14em;color:#eafbf3}
+#gate p{margin:0 0 6px;color:var(--dim);max-width:52ch}
+#gate .em{color:var(--ink)}
+button.primary{margin-top:34px;background:var(--ink);border-color:var(--ink);color:#02170e;font-weight:700}
+button.primary:hover{background:#6bffc4}
+.hint{margin-top:16px;color:#155c3f;font-size:12px;letter-spacing:.2em}
+#ended{display:none}
+#ended h2{margin:0 0 18px;color:#eafbf3;letter-spacing:.2em}
+#ended ul{list-style:none;padding:0;margin:0;color:var(--dim);line-height:2}
+#ended li::before{content:"\2713  ";color:var(--ink)}
+button.ghost{margin-top:28px;background:transparent;border-color:var(--dim);color:var(--ink)}
+</style>
+</head>
+<body>
+
+<div id="stage" aria-hidden="true">
+  <canvas id="rain"></canvas>
+  <div id="term"></div>
+  <div id="glitch"></div>
+  <div id="bsod">A problem has been detected and the host has been shut down to prevent
+damages to its database.
+
+IRQL_NOT_LESS_OR_EQUAL
+
+Technical information: *** STOP: 0x000000D1 (0x00000000, 0x00000002, 0x00000000, 0x8F21C140)</div>
+  <div id="ransom">
+    <div class="rbox">
+      <div class="rhead">YOUR FILES HAVE BEEN ENCRYPTED</div>
+      <div class="rsub">host VN-WORKSTATION &middot; session <span id="sessid"></span></div>
+      <div class="rbody">
+        <p>Every document, photo, database and backup on this volume was encrypted with
+AES-256-CBC using a per-file key, wrapped with RSA-2048. The decryption key is not
+stored on this machine and cannot be recovered locally.</p>
+        <p>A copy of your files was transferred to our servers before encryption.
+Reformatting, restoring from cloud, or deleting data does not remove that copy.</p>
+        <div class="rgrid">
+          <div><span>reference</span><b id="refid"></b></div>
+          <div><span>key fingerprint</span><b id="keyfp"></b></div>
+          <div><span>amount</span><b>0.75 BTC</b></div>
+          <div><span>expires in</span><b id="cd">15:00</b></div>
+        </div>
+        <div class="rlabel">send to address</div>
+        <div class="raddr">1FakeDemoAddressNotARealWallet00000000000000000</div>
+        <div class="rrow">
+          <input id="kinput" placeholder="paste decryption key" spellcheck="false" autocomplete="off">
+          <button id="kbtn">DECRYPT</button>
+        </div>
+        <div id="kmsg"></div>
+        <div class="rfoot">files remain unreadable until a valid key is entered.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="gate">
+  <h1>malware_sim</h1>
+  <p>A scripted, purely visual <span class="em">fake infection sequence</span>: terminal, code rain,
+encryption progress, a collapse and a ransom screen.</p>
+  <p>It reads nothing from this computer, modifies nothing, and contacts nothing. All output is
+generated from a fixed seed.</p>
+  <button class="primary" id="run">RUN SIMULATION</button>
+  <div class="hint">ESC stops and exits at any time</div>
+</div>
+
+<div id="ended">
+  <h2>SIMULATION ENDED</h2>
+  <ul>
+    <li>nothing on this machine was read, modified or transmitted</li>
+    <li>no files were created, renamed or deleted</li>
+    <li>no network request was made &mdash; the page never leaves origin</li>
+    <li>every string above was generated locally from a fixed seed</li>
+  </ul>
+  <button class="ghost" id="reload">RELOAD</button>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------------- deterministic fake data ---------------- */
+
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rnd = mulberry32(0x5EED);
+const pick = (arr) => arr[Math.min(arr.length - 1, Math.floor(rnd() * arr.length))];
+const hex = (n) => { let s = ''; for (let i = 0; i < n; i++) s += '0123456789abcdef'[Math.floor(rnd() * 16)]; return s; };
+const between = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
+
+const DIRS = ['/home/user/Documents', '/home/user/Pictures', '/home/user/Desktop',
+              '/var/lib/mysql', '/mnt/backup', '/srv/www/api', '/home/user/Projects/ledger'];
+const NAMES = ['invoice_q3', 'thesis_draft', 'passport_scan', 'family_trip', 'tax_return_2024',
+  'client_list', 'vault_export', 'wedding_raw', 'site_backup', 'payroll_may', 'db_dump_full',
+  'final_final_v3', 'design_assets', 'audio_master', 'dataset_train', 'notebook_prod',
+  'contracts_signed', 'screen_rec', 'keychain', 'obsidian_vault', 'vm_snapshot', 'rnd_notes'];
+const EXT = ['.docx', '.xlsx', '.pdf', '.jpg', '.png', '.zip', '.sql', '.psd', '.mp4', '.kdbx', '.tar.gz', '.md'];
+
+const FILES = [];
+for (let i = 0; i < 160; i++) FILES.push(pick(DIRS) + '/' + pick(NAMES) + '-' + hex(3) + pick(EXT));
+
+const SINKHOLE = ['203.0.113.197:8443', '198.51.100.66:443', '203.0.113.41:8080'];
+const RTTS = [41, 38, 44, 132, 47, 39, 118, 52, 43, 121, 46, 40];
+const GB_STEPS = ['0.4 / 38.7 GB', '3.1 / 38.7 GB', '7.8 / 38.7 GB', '13.2 / 38.7 GB',
+  '18.4 / 38.7 GB', '24.9 / 38.7 GB', '30.1 / 38.7 GB', '34.6 / 38.7 GB', '38.7 / 38.7 GB'];
+
+const SESSION = hex(8);
+const REFID = 'VN-' + hex(4).toUpperCase() + '-' + hex(4).toUpperCase();
+const KEYFP = [hex(4), hex(4), hex(4), hex(4)].join(' ');
+
+/* ---------------- terminal primitives ---------------- */
+
+const stage = document.getElementById('stage');
+const termEl = document.getElementById('term');
+const rainEl = document.getElementById('rain');
+const glitchEl = document.getElementById('glitch');
+const bsodEl = document.getElementById('bsod');
+const ransomEl = document.getElementById('ransom');
+const MAX_LINES = 360;
+
+function rowEl(cls) {
+  const d = document.createElement('div');
+  d.className = 'row' + (cls ? ' ' + cls : '');
+  termEl.appendChild(d);
+  while (termEl.childElementCount > MAX_LINES) termEl.removeChild(termEl.firstElementChild);
+  return d;
+}
+
+const E = (at, text, cls, type, caret) => ({ at, text, cls, type, caret });
+
+function runScript(events) {
+  let i = 0;
+  return (t) => {
+    while (i < events.length && t >= events[i].at) {
+      const e = events[i];
+      e.el = rowEl(e.cls);
+      if (e.caret) e.el.classList.add('caret');
+      if (!e.type) e.el.textContent = e.text;
+      i++;
+    }
+    for (let k = Math.max(0, i - 10); k < i; k++) {
+      const e = events[k];
+      if (!e.type || e.done || !e.el) continue;
+      const p = (t - e.at) / e.type;
+      if (p >= 1) { e.el.textContent = e.text; e.el.classList.remove('caret'); e.done = true; continue; }
+      e.el.textContent = e.text.slice(0, Math.max(0, Math.floor(p * e.text.length)));
+    }
+  };
+}
+
+function makeBar(label, hot) {
+  const wrap = document.createElement('div');
+  wrap.className = 'barrow';
+  const bl = document.createElement('span'); bl.className = 'bl'; bl.textContent = label;
+  const bar = document.createElement('span'); bar.className = 'bar' + (hot ? ' hot' : '');
+  const fill = document.createElement('i');
+  const pct = document.createElement('span'); pct.className = 'pct';
+  bar.appendChild(fill);
+  wrap.append(bl, bar, pct);
+  termEl.appendChild(wrap);
+  while (termEl.childElementCount > MAX_LINES) termEl.removeChild(termEl.firstElementChild);
+  return { set(p, note) { fill.style.width = (Math.max(0, Math.min(1, p)) * 100).toFixed(1) + '%'; pct.textContent = note != null ? note : Math.round(p * 100) + '%'; } };
+}
+
+/* ---------------- code rain ---------------- */
+
+const GLYPHS = '0123456789ABCDEF$#%&@*+=/\\|<>~?!アカサタナハマヤラワ'.split('');
+const rain = (() => {
+  const ctx = rainEl.getContext('2d');
+  const FS = 15;
+  let w = 0, h = 0, cols = 0, ys = null, acc = 0;
+  function resize() {
+    const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+    w = window.innerWidth; h = window.innerHeight;
+    rainEl.width = Math.max(1, Math.floor(w * dpr));
+    rainEl.height = Math.max(1, Math.floor(h * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cols = Math.ceil(w / FS);
+    ys = new Float32Array(cols);
+    for (let i = 0; i < cols; i++) ys[i] = -Math.random() * h;
+  }
+  function draw(dt, speed) {
+    acc += dt;
+    if (acc < 42) return;
+    acc = 0;
+    ctx.fillStyle = 'rgba(4,6,10,0.14)';
+    ctx.fillRect(0, 0, w, h);
+    ctx.font = FS + 'px monospace';
+    for (let i = 0; i < cols; i++) {
+      const y = ys[i];
+      ctx.fillStyle = Math.random() < 0.04 ? '#e9fff5' : '#0f9d63';
+      ctx.fillText(GLYPHS[Math.floor(Math.random() * GLYPHS.length)], i * FS, y);
+      ys[i] = y > h + Math.random() * 500 ? 0 : y + FS * speed;
+    }
+  }
+  resize();
+  return { resize, draw };
+})();
+
+/* ---------------- timeline ---------------- */
+
+const PHASES = [
+  {
+    name: 'boot', dur: 2600,
+    setup() {
+      const step = runScript([
+        E(0, 'visitor@VN-WORKSTATION:~$ ./init --stage=full --silent --no-prompt', 'head caret', 1500),
+        E(1900, 'exec: payload mapped at 0x' + hex(8) + '  argv stripped  pid 4188', 'dim', 700),
+      ]);
+      return (t) => { rainEl.style.opacity = '0'; step(t); };
+    }
+  },
+  {
+    name: 'scan', dur: 5200,
+    setup() {
+      const bar = makeBar('scan');
+      const step = runScript([
+        E(0, '[+] host fingerprint: ubuntu 24.04  kernel 6.8.0-41-generic  x86_64', '', 600),
+        E(700, '[+] user: visitor (uid 1000)  sudo groups: none', 'dim', 500),
+        E(1400, '[+] enumerating reachable filesystem ...', 'warn', 600),
+        E(2500, '[+] /home/user/Documents   412 files   6.1 GB', 'cy', 300),
+        E(3050, '[+] /home/user/Pictures    268 files  14.9 GB', 'cy', 300),
+        E(3600, '[+] /var/lib/mysql          96 tables  3.4 GB', 'cy', 300),
+        E(4150, '[+] /mnt/backup            428 files  14.3 GB', 'cy', 300),
+        E(4750, '[+] total targeted: 1,204 files  38.7 GB', 'head', 450),
+      ]);
+      return (t) => {
+        rainEl.style.opacity = t > 900 ? '0.42' : '0.15';
+        step(t);
+        bar.set((t - 1900) / 2700);
+      };
+    }
+  },
+  {
+    name: 'beacon', dur: 4200,
+    setup() {
+      let k = 0, slot = -1;
+      const live = rowEl('');
+      const step = runScript([
+        E(0, '[-] dns: resolving sinkhole domain list (7 cached)', 'dim', 500),
+        E(1700, '[<] task received: id=0x4f2a  op=encrypt  key=fingerprint-only', 'warn', 600),
+        E(2500, '[<] ransom profile pushed: template "VN-WALL"  note: no local restore', '', 600),
+        E(3300, '[>] hello packet accepted  crypto channel sealed  nonce ' + hex(6), 'dim', 500),
+      ]);
+      return (t) => {
+        rainEl.style.opacity = '0.42';
+        const s = Math.floor(t / 170);
+        if (s !== slot) {
+          slot = s;
+          const rtt = RTTS[k % RTTS.length];
+          const jitter = (k * 7) % 13;
+          live.textContent = '[>] beacon ' + SINKHOLE[k % SINKHOLE.length] +
+            '   rtt ' + rtt + 'ms  jitter +' + jitter + 'ms  ok';
+          k++;
+        }
+        step(t);
+      };
+    }
+  },
+  {
+    name: 'encrypt', dur: 9000,
+    setup() {
+      const bar = makeBar('encrypt', true);
+      const events = [
+        E(0, '[!!] AES-256-CBC  per-file key  wrapped with RSA-2048', 'bad', 600),
+        E(800, '[!!] rewriting in place  original bytes discarded', 'bad', 500),
+      ];
+      for (let i = 0; i < 34; i++) {
+        events.push(E(1500 + i * 175, '  encrypted  ' + FILES[i] + '  ->  .locked', 'dim', 90));
+      }
+      events.push(E(7500, '[!!] vssadmin delete shadows -> FAILED (uid 1000, not root)', 'warn', 600));
+      events.push(E(8300, '[!!] entropy check 7.998 bits/byte  wipe-on-retry armed', 'bad', 500));
+      events.push(E(8700, '[!!] 1,204 / 1,204 files encrypted', 'bad', 400));
+      const step = runScript(events);
+      return (t) => {
+        rainEl.style.opacity = '0.5';
+        step(t);
+        bar.set((t - 1000) / 7700);
+      };
+    }
+  },
+  {
+    name: 'persist', dur: 3800,
+    setup() {
+      const step = runScript([
+        E(0, '[+] persistence: ~/.config/autostart/xupdate.desktop', 'cy', 300),
+        E(400, '[+] persistence: systemd unit fw-watch.service enabled', 'cy', 300),
+        E(800, '[+] persistence: crontab @reboot /usr/local/bin/.x/init', 'cy', 300),
+        E(1200, '[+] persistence: shell hook appended to ~/.bashrc', 'cy', 300),
+        E(1700, '[<] c2 binary cached  0-byte loader written to disk', 'dim', 400),
+        E(2200, '[!] scrubbed /proc/self/cmdline  mmap marked anonymous', 'dim', 400),
+        E(2750, '[+] session established  id ' + SESSION, 'head', 400),
+      ]);
+      return (t) => { rainEl.style.opacity = '0.55'; step(t); };
+    }
+  },
+  {
+    name: 'exfil', dur: 3800,
+    setup() {
+      const bar = makeBar('transfer');
+      const step = runScript([
+        E(0, '[^] tunnel up  203.0.113.197:8443  chunked 4 MiB', 'warn', 500),
+        E(3350, '[OK] exfil complete  manifest sha256:' + hex(16), 'bad', 450),
+      ]);
+      return (t) => {
+        rainEl.style.opacity = '0.55';
+        step(t);
+        const p = (t - 300) / 2900;
+        bar.set(p, GB_STEPS[Math.max(0, Math.min(GB_STEPS.length - 1, Math.floor(p * GB_STEPS.length)))]);
+      };
+    }
+  },
+  {
+    name: 'collapse', dur: 3000,
+    setup() {
+      const step = runScript([
+        E(0, '[!!] integrity check failed  heap poisoned', 'bad', 250),
+        E(320, 'kernel: general protection fault at 0xffffffff8f21c140', 'bad', 300),
+        E(700, 'kernel: BUG: unable to handle page request for address 0000000000000018', 'bad', 300),
+        E(1400, 'kernel: trapping intent to modify locked volume table', 'bad', 300),
+        E(1800, '[!!] display driver recovered 3 times  framebuffer torn', 'bad', 300),
+        E(2400, '[!!] ransom screen staged  pid 4188 -> foreground', 'head', 300),
+      ]);
+      const flashA = t => t > 900 && t < 1280;
+      const flashB = t => t > 2000 && t < 2320;
+      return (t) => {
+        rainEl.style.opacity = '0.8';
+        step(t);
+        const amp = 2 + (t / 3000) * 11;
+        const dx = Math.sin(t * 0.021) * amp + Math.sin(t * 0.087) * amp * 0.4;
+        const dy = Math.cos(t * 0.014) * amp * 0.5;
+        stage.style.transform = 'translate3d(' + dx.toFixed(2) + 'px,' + dy.toFixed(2) + 'px,0) skewX(' +
+          (Math.sin(t * 0.033) * amp * 0.14).toFixed(2) + 'deg)';
+        glitchEl.style.opacity = String(0.35 + (t / 3000) * 0.5);
+        const bsod = flashA(t) || flashB(t);
+        bsodEl.style.display = bsod ? 'block' : 'none';
+        if (bsod) glitchEl.style.opacity = '0';
+      };
+    }
+  },
+  {
+    name: 'ransom', dur: Infinity,
+    setup() {
+      const step = runScript([E(0, '[+] decryption key exists only on the remote host', 'bad', 500)]);
+      const cd = document.getElementById('cd');
+      let shown = false, slot = -1;
+      return (t) => {
+        rainEl.style.opacity = '0';
+        step(t);
+        if (!shown && t > 1100) {
+          shown = true;
+          stage.style.transform = '';
+          glitchEl.style.opacity = '0';
+          bsodEl.style.display = 'none';
+          ransomEl.classList.add('on');
+        }
+        if (shown) {
+          const s = Math.floor(t / 200);
+          if (s !== slot) {
+            slot = s;
+            const left = Math.max(0, 900 - (t - 1100) / 1000);
+            const m = Math.floor(left / 60), sec = Math.floor(left % 60);
+            cd.textContent = m + ':' + String(sec).padStart(2, '0');
+          }
+        }
+      };
+    }
+  }
+];
+
+/* ---------------- engine: one clock, one loop ---------------- */
+
+let idx = 0, tLocal = 0, last = 0, running = false, raf = 0;
+
+function start(i) {
+  tLocal = 0;
+  PHASES[i].frame = PHASES[i].setup();
+}
+
+function tick(now) {
+  if (!running) return;
+  raf = requestAnimationFrame(tick);
+  const dt = Math.min(50, now - last || 16);
+  last = now;
+  tLocal += dt;
+  while (idx < PHASES.length - 1 && tLocal >= PHASES[idx].dur) {
+    tLocal -= PHASES[idx].dur;
+    idx++;
+    start(idx);
+  }
+  rain.draw(dt, idx >= 6 ? 1.9 : 1);
+  if (PHASES[idx].frame) PHASES[idx].frame(tLocal);
+}
+
+/* ---------------- control ---------------- */
+
+let attempts = 0;
+
+function teardown() {
+  running = false;
+  cancelAnimationFrame(raf);
+  stage.style.transform = '';
+  glitchEl.style.opacity = '0';
+  bsodEl.style.display = 'none';
+  ransomEl.classList.remove('on');
+  document.getElementById('ended').style.display = 'flex';
+  try { if (document.fullscreenElement) document.exitFullscreen(); } catch (_) {}
+}
+
+document.getElementById('sessid').textContent = SESSION;
+document.getElementById('refid').textContent = REFID;
+document.getElementById('keyfp').textContent = KEYFP;
+
+document.getElementById('run').addEventListener('click', () => {
+  document.getElementById('gate').style.display = 'none';
+  try { const p = stage.requestFullscreen && stage.requestFullscreen(); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+  running = true;
+  last = 0;
+  start(0);
+  raf = requestAnimationFrame(tick);
+});
+
+document.getElementById('kbtn').addEventListener('click', (ev) => {
+  ev.preventDefault();
+  attempts++;
+  const msg = document.getElementById('kmsg');
+  if (attempts >= 4) { msg.textContent = 'lockout engaged  key rotated  new fingerprint issued'; return; }
+  msg.textContent = 'invalid key  ' + (4 - attempts) + ' attempt' + (4 - attempts === 1 ? '' : 's') + ' remaining';
+});
+
+document.getElementById('reload').addEventListener('click', () => location.reload());
+
+window.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape') { ev.preventDefault(); teardown(); }
+});
+
+window.addEventListener('resize', rain.resize);
+window.addEventListener('fullscreenchange', rain.resize);
+})();
+</script>
+</body>
+</html>
